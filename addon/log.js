@@ -21,6 +21,9 @@ class LogParser {
     this.apexClassBody = [];
     this.apexClassName = "";
     this.model = model;
+    // To resolve nodeRoot being null
+    this._rootNodeReady = null;
+    this._rootNodeResolve = null;
   }
   addApexClass(cls) {
     if (banNamespaces.includes(cls)) { //skip system namespace
@@ -53,51 +56,62 @@ class LogParser {
       this.model.selectApexClassLine(this.model.apexLineNumber);
     }
     sfConn.rest("/services/data/v" + apiVersion + "/query/?q=" + encodeURIComponent("SELECT Id,Name, Status, NamespacePrefix, Body FROM ApexClass WHERE Name = '" + apexClassName + "'"), {}).then((data) => {
-      if (data.records.length > 0) {
-        this.apexClassName = apexClassName;
-        this.apexClassBody = data.records[0].Body.split("\n").map((l, i) => ({
-          line: l,
-          number: i + 1
-        }));
-        let nodes = this.visiteAllNode(this.rootNode, false, []);
-        nodes.filter(n => n.lineNumber).forEach((n) => {
-          if (this.apexClassBody[n.lineNumber - 1].color == null) {
-            this.apexClassBody[n.lineNumber - 1].color = "#90ff90";
-          }
-          if (n instanceof ExceptionThrownNode || n instanceof FatalErrorNode){
-            this.apexClassBody[n.lineNumber - 1].color = "#ff5555";
-          }
-        });
-        this.model.didUpdate(() => {
-          if (this.model.apexLineNumber == null) {
-            return;
-          }
-          let offsetHeight = this.model.contentRef ? this.model.contentRef.offsetHeight : 0;
-          let scrollLogIdx = (this.model.apexLineNumber * this.model.lineHeight) - (offsetHeight / 2);
-          let contentHeight = this.apexClassBody.length * this.model.lineHeight;
-          if (scrollLogIdx > 0 && scrollLogIdx < contentHeight - offsetHeight) {
-            if (this.model.lineNumbersRef != null) {
-              this.model.lineNumbersRef.scrollTop = scrollLogIdx;
-              //model.lineNumbersRef.scrollTo(0, scrollLogIdx);
+      return this._rootNodeReady.then(() => { // only executes after rootNode populated
+        if (data.records.length > 0) {
+          this.apexClassName = apexClassName;
+          this.apexClassBody = data.records[0].Body.split("\n").map((l, i) => ({
+            line: l,
+            number: i + 1
+          }));
+          let nodes = this.visiteAllNode(this.rootNode, false, []);
+          nodes.filter(n => n.lineNumber).forEach((n) => {
+            if (this.apexClassBody[n.lineNumber - 1].color == null) {
+              this.apexClassBody[n.lineNumber - 1].color = "#90ff90";
             }
-            if (this.model.contentRef) {
-              this.model.contentRef.scrollTop = scrollLogIdx;
+            if (n instanceof ExceptionThrownNode || n instanceof FatalErrorNode){
+              this.apexClassBody[n.lineNumber - 1].color = "#ff5555";
             }
-          }
-        });
-      }
+          });
+          this.model.didUpdate(() => {
+            if (this.model.apexLineNumber == null) {
+              return;
+            }
+            let offsetHeight = this.model.contentRef ? this.model.contentRef.offsetHeight : 0;
+            let scrollLogIdx = (this.model.apexLineNumber * this.model.lineHeight) - (offsetHeight / 2);
+            let contentHeight = this.apexClassBody.length * this.model.lineHeight;
+            if (scrollLogIdx > 0 && scrollLogIdx < contentHeight - offsetHeight) {
+              if (this.model.lineNumbersRef != null) {
+                this.model.lineNumbersRef.scrollTop = scrollLogIdx;
+                //model.lineNumbersRef.scrollTo(0, scrollLogIdx);
+              }
+              if (this.model.contentRef) {
+                this.model.contentRef.scrollTop = scrollLogIdx;
+              }
+            }
+          });
+        }
+      });
     });
   }
   parseLog(data) {
     this.lines = data.split("\n");
     this.lineCount = this.lines.length;
     let node = new RootNode(this);
+
+    // Promise to hold selectApexClass execution
+    this._rootNodeReady = new Promise(resolve => {
+      this._rootNodeResolve = resolve;
+    });
+    
     this.parseLine(node, null);
     if (this.index < this.lineCount) {
       this.parseLine(node, null);
     }
     this.aggregate(node);
     this.rootNode = node;
+    
+    this._rootNodeResolve(); // ← Makr rootNote finalized and release selectApexClass calls to progress
+    
     let result = [];
     [this.nodes, this.maxLvlNodes] = this.flatternNode(node.child, result, 1, 1);
   }
