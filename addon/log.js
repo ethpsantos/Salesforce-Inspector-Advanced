@@ -865,6 +865,7 @@ class SOQLNode extends ApexNode {
     //Index on User : [Id], cardinality: 1, sobjectCardinality: 575, relativeCost 0.006
     if (l.length > 3) {
       let explaination = l[3].split("],");
+      if (explaination.length < 2) return; // Some cases has no explain plan
       let dbIndex = explaination[0].split(" : [");
       this.SObjectName = dbIndex[0].substring(9);
       this.fields = dbIndex[1].split(",");
